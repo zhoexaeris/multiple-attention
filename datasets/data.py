@@ -3,7 +3,7 @@ import json
 import random
 dfdcroot='datasets/dfdc/'
 celebroot='datasets/celebDF/'
-ffpproot='datasets/ffpp/'
+ffpproot=r'D:\.THESIS\datasets\3_altered\3_1_blurring'
 deeperforensics_root='datasets/deeper/'
 def load_json(name):
     with open(name) as f:
@@ -14,28 +14,48 @@ def catdir(dir,label):
     l=os.listdir(dir)
     return [[os.path.join(dir,i),label] for i in l]
 
-def FF_dataset(tag='Origin',codec='c0',part='train'):
-    assert(tag in ['Origin','Deepfakes','NeuralTextures','FaceSwap','Face2Face','FaceShifter'])
-    assert(codec in ['c0','c23','c40','all'])
-    assert(part in ['train','val','test','all'])
-    if part=="all":
-        return FF_dataset(tag,codec,'train')+FF_dataset(tag,codec,'val')+FF_dataset(tag,codec,'test')
-    if codec=='all':
-        return FF_dataset(tag,'c0',part)+FF_dataset(tag,'c23',part)+FF_dataset(tag,'c40',part)
-    path=ffpproot+'%s/%s/larger_images/'%(tag,codec)
-    metafile=load_json(ffpproot+part+'.json')
-    files=[]
-    if tag=='Origin':
-        for i in metafile:
-            files.append([path+i[0],0])
-            files.append([path+i[1],0])
-    else:
-        for i in metafile:
-            files.append([path+i[0]+'_'+i[1],1])
-            files.append([path+i[1]+'_'+i[0],1])
-    return files
+def FF_dataset(tag='Origin', codec='c0', part='train'):
+    assert tag in ['DeepFakeDetection', 'Deepfakes', 'FaceSwap', 'FaceShifter', 'NeuralTextures', 'Face2Face']
+    assert codec in ['c0', 'c23', 'c40', 'all']
+    assert part in ['train', 'val', 'test', 'all']
 
-Celeb_test=list(map(lambda x:[os.path.join(celebroot,x[0]),1-x[1]],load_json(celebroot+'celeb.json')))
+    if part == "all":
+        return FF_dataset(tag, codec, 'train') + FF_dataset(tag, codec, 'val') + FF_dataset(tag, codec, 'test')
+    
+    if codec == 'all':
+        return FF_dataset(tag, 'c0', part) + FF_dataset(tag, 'c23', part) + FF_dataset(tag, 'c40', part)
+    
+    # NEW: Define correct path locations
+    if tag == 'Origin':  # Real images
+        path_actors = os.path.join(ffpproot, '3_1_1_original/Actors/')
+        path_youtube = os.path.join(ffpproot, '3_1_1_original/Youtube/')
+        metafile = load_json(ffpproot + part + '.json')
+
+        files = []
+        for i in metafile:
+            files.append([os.path.join(path_actors, i[0]), 0])
+            files.append([os.path.join(path_youtube, i[1]), 0])
+        return files
+
+    else:  # Fake images (preprocessed)
+        path_fake = os.path.join(ffpproot, '3_1_2_preprocessed', tag)
+        metafile = load_json(ffpproot + part + '.json')
+
+        files = []
+        for i in metafile:
+            fake_img1 = os.path.join(path_fake, i[0])
+            fake_img2 = os.path.join(path_fake, i[1])
+            files.append([fake_img1, 1])
+            files.append([fake_img2, 1])
+        return files
+
+
+# Celeb_test=list(map(lambda x:[os.path.join(celebroot,x[0]),1-x[1]],load_json(celebroot+'celeb.json')))
+
+if os.path.exists(celebroot+'celeb.json'):
+    Celeb_test=list(map(lambda x:[os.path.join(celebroot,x[0]),1-x[1]],load_json(celebroot+'celeb.json')))
+else:
+    Celeb_test = []
 
 def make_balance(data):
     tr=list(filter(lambda x:x[1]==0,data))

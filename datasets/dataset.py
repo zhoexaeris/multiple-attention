@@ -22,10 +22,14 @@ class DeepfakeDataset(Dataset):
 
         # Initialize the dataset based on datalabel
         self.dataset = []
+
+        print("Dataset Loaded: First 10 Entries")
+        print(self.dataset[:10])  # Check the first 10 image paths and labels
+
         if 'ff-5' in self.datalabel:
-            for i, j in enumerate(['Origin', 'Deepfakes', 'NeuralTextures', 'FaceSwap', 'Face2Face']):
+            for i, j in enumerate(['Origin', 'DeepFakeDetection', 'Deepfakes', 'Face2Face', 'FaceShifter', 'FaceSwap', 'NeuralTextures']):
                 temp = FF_dataset(j, self.datalabel.split('-')[2], phase)
-                temp = [[k[0], i] for k in temp]
+                temp = [[k[0], i] for k in temp]  # Ensure correct path
                 self.dataset += temp
         elif 'ff-all' in self.datalabel:
             for i in ['Origin', 'Deepfakes', 'NeuralTextures', 'FaceSwap', 'Face2Face']:

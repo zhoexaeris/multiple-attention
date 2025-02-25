@@ -20,6 +20,8 @@ cv2.ocl.setUseOpenCL(False)
 # Ensure GPUs are available
 assert torch.cuda.is_available()
 
+print("[DEBUG] train.py started...")
+
 def load_state(net, ckpt):
     """ Load model weights from checkpoint """
     sd = net.state_dict()
@@ -183,10 +185,30 @@ def run(logs, data_loader, net, optimizer, local_rank, config, AG=None, phase='t
     if local_rank == 0:
         logging.info(f"{phase}: {'  '.join(batch_info)}, Time {end_time - start_time:.2f}")
 
+
 def distributed_train(config, world_size=0, num_gpus=0, rank_offset=0):
+    print("[DEBUG] Starting distributed training...")
+    print(f"[DEBUG] Config loaded: {config.name}")
+
+    # Detect available GPUs
+    num_gpus_available = torch.cuda.device_count()
+    print(f"[DEBUG] Detected {num_gpus_available} GPUs.")
+
     if not num_gpus:
-        num_gpus = torch.cuda.device_count()
+        num_gpus = num_gpus_available
     if not world_size:
         world_size = num_gpus
+
+    print(f"[DEBUG] num_gpus={num_gpus}, world_size={world_size}, rank_offset={rank_offset}")
+
+    # Check if GPUs are detected
+    if num_gpus == 0:
+        print("[ERROR] No GPUs detected! Training cannot proceed.")
+        return
+
+    # Start training across multiple processes
+    print("[DEBUG] Spawning processes for distributed training...")
     mp.spawn(main_worker, nprocs=num_gpus, args=(world_size, rank_offset, config))
+
     torch.cuda.empty_cache()
+
