@@ -63,7 +63,7 @@ class train_config:
         for i in params:
             self.__setattr__(i, params[i])
 
-        self.train_dataset = dict(datalabel=self.datalabel, resize=self.resize, normalize=self.normalize)
+        self.train_dataset = dict(datalabel=self.datalabel, resize=self.resize, imgs_per_video=self.imgs_per_video, normalize=self.normalize)
         self.val_dataset = self.train_dataset
 
         self.net_config = dict(
