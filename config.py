@@ -1,6 +1,5 @@
 import os
 import pickle
-import glob
 import datetime
 
 class train_config:
@@ -31,10 +30,11 @@ class train_config:
         self.pretrained = ''  # Path to pretrained model if used
 
         ### Dataset Paths (UPDATED)
-        self.datalabel_c23 = 'ff-c23'
-        self.datalabel_c40 = 'ff-c40'
-        self.datalabel_celebdf = 'celebdf'
-        self.datalabel_wild = 'wilddeepfake'
+        self.datalabel_c23 = params.get('datalabel_c23', 'ff-c23')
+        self.datalabel_c40 = params.get('datalabel_c40', 'ff-c40')
+        self.datalabel_celebdf = params.get('datalabel_celebdf', 'celebdf')
+        self.datalabel_wild = params.get('datalabel_wild', 'wilddeepfake')
+
         self.imgs_per_video = None  # Not needed anymore
         self.frame_interval = None  # No need for frame skipping
         self.max_frames = None  # No need to limit frames
@@ -45,7 +45,7 @@ class train_config:
         self.augment = None  # Disable augmentations
 
         ### Training Parameters
-        self.batch_size = 64  # Increase batch size for faster training
+        self.batch_size = 16  # Increase batch size for faster training
         self.alpha = 0.05
         self.alpha_decay = 0.9
         self.margin = 0.5
@@ -57,12 +57,10 @@ class train_config:
         self.AGDA_loss_weight = 1
         self.match_loss_weight = 0.1
 
-        ### Store Configurations
-        for i in recipes:
-            self.recipe(i)
-        for i in params:
-            self.__setattr__(i, params[i])
+        ### Ensure `datalabel` is properly assigned
+        self.datalabel = params.get('datalabel', self.datalabel_c23)  # Default to FF++ C23 if missing
 
+        ### Store Configurations
         self.train_dataset = dict(datalabel=self.datalabel, resize=self.resize, imgs_per_video=self.imgs_per_video, normalize=self.normalize)
         self.val_dataset = self.train_dataset
 
@@ -83,38 +81,14 @@ class train_config:
         )
 
     def mkdirs(self):
-        """ Create directories for training logs and checkpoints """
-        os.makedirs(f'checkpoints/{self.name}', exist_ok=True)
-        os.makedirs(f'runs/{self.name}', exist_ok=True)
-        os.makedirs(f'evaluations/{self.name}', exist_ok=True)
+            """ Create directories for training logs and checkpoints """
+            os.makedirs(f'checkpoints/{self.name}', exist_ok=True)
+            os.makedirs(f'runs/{self.name}', exist_ok=True)
+            os.makedirs(f'evaluations/{self.name}', exist_ok=True)
 
-        with open(f'runs/{self.name}/config.pkl', 'wb') as f:
-            pickle.dump(self, f)
+            with open(f'runs/{self.name}/config.pkl', 'wb') as f:
+                pickle.dump(self, f)
 
-        if not self.comment:
-            self.comment = self.name + '_' + datetime.datetime.now().isoformat()
+            if not self.comment:
+                self.comment = self.name + '_' + datetime.datetime.now().isoformat()
 
-        os.system(f'git add . && git commit -m "{self.comment}" && git tag {self.name} -f')
-
-    @staticmethod
-    def load(name):
-        """ Load saved training configuration """
-        with open(f'runs/{name}/config.pkl', 'rb') as f:
-            p = pickle.load(f)
-
-        v = train_config('', ['ff-', 'efficientnet-b4'])
-        p = vars(p)
-
-        for i in p:
-            setattr(v, i, p[i])
-
-        return v
-
-    def reload(self):
-        """ Reload training with latest checkpoint """
-        list_of_files = glob.glob(f'checkpoints/{self.name}/*')
-        num = len(list_of_files)
-
-        if num > 0:
-            latest_file = max(list_of_files, key=os.path.getctime)
-            self.ckpt = latest_file

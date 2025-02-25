@@ -13,15 +13,9 @@ def pretrain(dataset):
     name = f'Efb4_{dataset}'
     url = 'tcp://127.0.0.1:27015'
 
-    Config = train_config(
-        name,
-        [dataset, 'efficientnet-b4'], 
-        url=url,
-        attention_layer='b5',
-        feature_layer='b1',
-        epochs=20,
-        batch_size=64
-    )
+    Config = train_config(name, datalabel=dataset)  # Explicitly set datalabel
+
+
 
     Config.mkdirs()
     distributed_train(Config)

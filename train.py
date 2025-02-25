@@ -38,92 +38,71 @@ def load_state(net, ckpt):
     net.load_state_dict(nd, strict=False)
     return goodmatch
 
+def train_loop(net, train_loader, optimizer, scheduler, config, device):
+    """Runs the training loop."""
+    net.train()
+    total_loss = 0
+    correct = 0
+    total_samples = 0
+
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        optimizer.zero_grad()
+        outputs = net(inputs)
+        
+        loss = F.cross_entropy(outputs, targets)  # Compute loss
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        predicted = torch.argmax(outputs, dim=1)
+        correct += (predicted == targets).sum().item()
+        total_samples += targets.size(0)
+
+        if batch_idx % 10 == 0:
+            print(f"[DEBUG] Batch {batch_idx}: Loss = {loss.item():.4f}")
+
+    avg_loss = total_loss / len(train_loader)
+    acc = correct / total_samples
+
+    print(f"[INFO] Training Loss: {avg_loss:.4f}, Accuracy: {acc:.4%}")
+    scheduler.step()
+
+
 def main_worker(local_rank, world_size, rank_offset, config):
+    print(f"[DEBUG] Using dataset label: {config.datalabel}")
+
     rank = local_rank + rank_offset
 
-    # Initialize logging
-    if rank == 0:
-        logging.basicConfig(
-            filename=os.path.join('runs', config.name, 'train.log'),
-            filemode='a',
-            format='%(asctime)s: %(levelname)s: [%(filename)s:%(lineno)d]: %(message)s',
-            level=logging.INFO
-        )
+    print(f"[DEBUG] main_worker started! Rank: {rank}, Local Rank: {local_rank}")
 
-    warnings.filterwarnings("ignore")
+    # ✅ Only initialize distributed training if using multiple GPUs
+    if world_size > 1:
+        print(f"[DEBUG] Initializing distributed training with {world_size} GPUs...")
+        dist.init_process_group(backend='gloo', init_method=config.url, world_size=world_size, rank=rank)
+    else:
+        print("[DEBUG] Running on a single GPU: No distributed training initialized.")
 
-    # Initialize Distributed Training
-    dist.init_process_group(backend='nccl', init_method=config.url, world_size=world_size, rank=rank)
+    # ✅ Set device manually
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    torch.cuda.set_device(device)
 
-    torch.manual_seed(1234567)
-    torch.cuda.manual_seed(1234567)
-    torch.cuda.set_device(local_rank)
+    # ✅ Load Dataset
+    train_dataset = DeepfakeDataset(phase='train', datalabel=config.datalabel, resize=config.resize, normalize=config.normalize)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, pin_memory=True, num_workers=config.workers)
 
-    # 🔹 **Modify Dataset Loading (Frame-Based)**
-    train_dataset_c23 = DeepfakeDataset(phase='train', datalabel=config.datalabel_c23, resize=config.resize, normalize=config.normalize)
-    train_dataset_c40 = DeepfakeDataset(phase='train', datalabel=config.datalabel_c40, resize=config.resize, normalize=config.normalize)
-    train_dataset_celebdf = DeepfakeDataset(phase='train', datalabel=config.datalabel_celebdf, resize=config.resize, normalize=config.normalize)
-    train_dataset_wild = DeepfakeDataset(phase='train', datalabel=config.datalabel_wild, resize=config.resize, normalize=config.normalize)
-    validate_dataset = DeepfakeDataset(phase='val', datalabel=config.datalabel, resize=config.resize, normalize=config.normalize)
+    print(f"[DEBUG] Train dataset loaded: {len(train_dataset)} samples")
 
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    validate_sampler = torch.utils.data.distributed.DistributedSampler(validate_dataset)
-
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, sampler=train_sampler, pin_memory=True, num_workers=config.workers)
-    validate_loader = DataLoader(validate_dataset, batch_size=config.batch_size, sampler=validate_sampler, pin_memory=True, num_workers=config.workers)
-
-    logs = {}
-    start_epoch = 0
-
-    # Load Model
-    net = MAT(**config.net_config).to(local_rank)
-    net = nn.SyncBatchNorm.convert_sync_batchnorm(net)
-    net = nn.parallel.DistributedDataParallel(net, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
-
-    AG = AGDA(**config.AGDA_config).to(local_rank)
-
+    # ✅ Load Model
+    net = MAT(**config.net_config).to(device)
     optimizer = torch.optim.AdamW(net.parameters(), lr=config.learning_rate, betas=config.adam_betas, weight_decay=config.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.scheduler_step, gamma=config.scheduler_gamma)
 
-    if config.ckpt:
-        loc = f'cuda:{local_rank}'
-        checkpoint = torch.load(config.ckpt, map_location=loc)
-        logs = checkpoint['logs']
-        start_epoch = int(logs['epoch']) + 1
+    # ✅ Start Training
+    print("[DEBUG] Training starts...")
+    train_loop(net, train_loader, optimizer, scheduler, config, local_rank)
 
-        if load_state(net.module, checkpoint['state_dict']) and config.resume_optim:
-            optimizer.load_state_dict(checkpoint['optimizer_state'])
-            try:
-                scheduler.load_state_dict(checkpoint['scheduler_state'])
-            except:
-                pass
-
-        else:
-            net.module.auxiliary_loss.alpha = torch.tensor(config.alpha)
-
-        del checkpoint
-    torch.cuda.empty_cache()
-
-    # 🔹 **Remove Frame Selection (Epoch Handling No Longer Needed)**
-    for epoch in range(start_epoch, config.epochs):
-        logs['epoch'] = epoch
-        train_sampler.set_epoch(epoch)
-
-        run(logs=logs, data_loader=train_loader, net=net, optimizer=optimizer, local_rank=local_rank, config=config, AG=AG, phase='train')
-        run(logs=logs, data_loader=validate_loader, net=net, optimizer=optimizer, local_rank=local_rank, config=config, phase='valid')
-
-        net.module.auxiliary_loss.alpha *= config.alpha_decay
-        scheduler.step()
-
-        if local_rank == 0:
-            torch.save({
-                'logs': logs,
-                'state_dict': net.module.state_dict(),
-                'optimizer_state': optimizer.state_dict(),
-                'scheduler_state': scheduler.state_dict()
-            }, f'checkpoints/{config.name}/ckpt_{epoch}.pth')
-
-        dist.barrier()
 
 def train_loss(loss_pack, config):
     """ Calculate total loss """
@@ -186,29 +165,11 @@ def run(logs, data_loader, net, optimizer, local_rank, config, AG=None, phase='t
         logging.info(f"{phase}: {'  '.join(batch_info)}, Time {end_time - start_time:.2f}")
 
 
-def distributed_train(config, world_size=0, num_gpus=0, rank_offset=0):
-    print("[DEBUG] Starting distributed training...")
-    print(f"[DEBUG] Config loaded: {config.name}")
+def distributed_train(config):
+    print("[DEBUG] Running training on a single GPU.")
+    
+    # Instead of using multiprocessing, directly call main_worker()
+    main_worker(0, 1, 0, config)  # (local_rank=0, world_size=1, rank_offset=0, config=config)
 
-    # Detect available GPUs
-    num_gpus_available = torch.cuda.device_count()
-    print(f"[DEBUG] Detected {num_gpus_available} GPUs.")
-
-    if not num_gpus:
-        num_gpus = num_gpus_available
-    if not world_size:
-        world_size = num_gpus
-
-    print(f"[DEBUG] num_gpus={num_gpus}, world_size={world_size}, rank_offset={rank_offset}")
-
-    # Check if GPUs are detected
-    if num_gpus == 0:
-        print("[ERROR] No GPUs detected! Training cannot proceed.")
-        return
-
-    # Start training across multiple processes
-    print("[DEBUG] Spawning processes for distributed training...")
-    mp.spawn(main_worker, nprocs=num_gpus, args=(world_size, rank_offset, config))
-
-    torch.cuda.empty_cache()
+    print("[DEBUG] Training completed successfully.")
 
