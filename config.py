@@ -4,7 +4,7 @@ import glob
 import datetime
 
 class train_config:
-    def __init__(self, name, recipes=[], **params):
+    def __init__(self, name, **params):
         ### Basic Configs
         self.name = name
         self.comment = ''
