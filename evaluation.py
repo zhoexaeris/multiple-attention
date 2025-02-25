@@ -5,7 +5,8 @@ import numpy as np
 from datasets.dataset import DeepfakeDataset
 from models.MAT import MAT
 from sklearn.metrics import roc_auc_score as AUC
-from copy import deepcopy
+import pickle
+import re
 
 # Load the trained model and its configuration
 def load_model(name):
@@ -27,7 +28,7 @@ def find_best_ckpt(name, last=False):
     best = accs.index(max(accs))
     return best
 
-# omputes classification accuracy based on a fixed threshold
+# Compute classification accuracy based on a fixed threshold
 def acc_eval(labels, preds):
     labels = np.array(labels)
     preds = np.array(preds)
@@ -35,7 +36,7 @@ def acc_eval(labels, preds):
     acc = np.mean((preds >= thres) == labels)
     return thres, acc
 
-# Runs model inference on the test dataset and stores predictions
+# Evaluate the trained model on the test dataset
 def test_eval(net, setting, testset):
     test_dataset = DeepfakeDataset(phase='test', **setting)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=setting['batch_size'],
@@ -58,7 +59,7 @@ def test_eval(net, setting, testset):
 
         testset[i].append(np.mean(testset[i][-1]))
 
-# Computes performance metrics (Accuracy, AUC) based on test predictions
+# Compute performance metrics (Accuracy, AUC) based on test predictions
 def test_metric(testset):
     frame_labels, frame_preds, video_labels, video_preds = [], [], [], []
 
@@ -82,15 +83,15 @@ def test_metric(testset):
         'frame_auc': frame_auc
     }
 
-# Evaluates the trained model on different test datasets
-def all_eval(name, ckpt=None, test_sets=['ff-c23-c40', 'celeb', 'wilddeepfake']):
+# Evaluate the trained model on a specific dataset
+def all_eval(name, dataset, ckpt=None):
     config, net = load_model(name)
     setting = config.val_dataset
+    setting['datalabel'] = dataset
     setting['min_frames'] = None  # No need for frame limit
     setting['frame_interval'] = None  # No need for interval
     setting['imgs_per_video'] = None  # Since we are using pre-extracted frames
 
-    # Load best model checkpoint
     if ckpt is None:
         ckpt = find_best_ckpt(name)
     if ckpt < 0:
@@ -105,26 +106,23 @@ def all_eval(name, ckpt=None, test_sets=['ff-c23-c40', 'celeb', 'wilddeepfake'])
 
     result = {}
 
-    # Evaluate each dataset
-    for dataset_name in test_sets:
-        setting['datalabel'] = dataset_name
-        testset = DeepfakeDataset(phase='test', **setting)
+    testset = DeepfakeDataset(phase='test', datalabel=dataset, resize=config.resize, normalize=config.normalize)
 
-        test_eval(net, setting, testset)
+    test_eval(net, setting, testset)
 
-        with open(f'evaluations/{name}/{dataset_name}-test-{ckpt}.json', 'w') as f:
-            json.dump(testset, f)
+    with open(f'evaluations/{name}/{dataset}-test-{ckpt}.json', 'w') as f:
+        json.dump(testset, f)
 
-        result[dataset_name] = test_metric(testset)
+    result[dataset] = test_metric(testset)
 
-    # Save evaluation results
-    with open(f'evaluations/{name}/metrics-{ckpt}.json', 'w') as f:
+    with open(f'evaluations/{name}/metrics-{dataset}-{ckpt}.json', 'w') as f:
         json.dump(result, f)
 
-# Computes mean correlation between attention maps for different test cases
-def eval_meancorr(name, ckpt=None):
+# Evaluate the mean correlation between attention maps
+def eval_meancorr(name, dataset, ckpt=None):
     config, net = load_model(name)
     setting = config.val_dataset
+    setting['datalabel'] = dataset
     setting['frame_interval'] = None
     setting['imgs_per_video'] = 60
 
@@ -139,7 +137,7 @@ def eval_meancorr(name, ckpt=None):
     net.cuda()
 
     testset = []
-    test_dataset = DeepfakeDataset(phase='test', **setting)
+    test_dataset = DeepfakeDataset(phase='test', datalabel=dataset, resize=config.resize, normalize=config.normalize)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=30, shuffle=False, pin_memory=True, num_workers=8)
 
     count = 0

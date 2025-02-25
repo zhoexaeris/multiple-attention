@@ -8,32 +8,31 @@ import subprocess
 
 # torch.autograd.set_detect_anomaly(True)
 
-# Pretrain the model using frame-based datasets (FF++ C23, C40, CelebDF, WildDeepfake)
-def pretrain():
-    name = 'Efb4'
+# Pretrain the model using a specific dataset (FF++ C23, C40, CelebDF, WildDeepfake)
+def pretrain(dataset):
+    name = f'Efb4_{dataset}'
     url = 'tcp://127.0.0.1:27015'
 
-    # 🔹 Ensure dataset uses pre-extracted frames instead of videos
     Config = train_config(
         name,
-        ['ff-c23-c40-celebdf-wilddeepfake', 'efficientnet-b4'], 
+        [dataset, 'efficientnet-b4'], 
         url=url,
         attention_layer='b5',
         feature_layer='b1',
         epochs=20,
-        batch_size=64,  # Increased batch size for frame training
-        AGDA_loss_weight=0
+        batch_size=64
     )
 
     Config.mkdirs()
     distributed_train(Config)
 
-    # Run evaluation on the last 3 checkpoints
+    # Evaluate last 3 checkpoints
     procs = [subprocess.Popen(['/bin/bash', '-c', f'CUDA_VISIBLE_DEVICES={i} python main.py test {name} {j}'])
              for i, j in enumerate(range(-3, 0))]
     
     for i in procs:
         i.wait()
+
 
 # Run a custom experiment with modified parameters
 def experiment():

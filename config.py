@@ -31,7 +31,10 @@ class train_config:
         self.pretrained = ''  # Path to pretrained model if used
 
         ### Dataset Paths (UPDATED)
-        self.datalabel = 'ff-c23-c40-celebdf-wilddeepfake'  # Using pre-extracted frames
+        self.datalabel_c23 = 'ff-c23'
+        self.datalabel_c40 = 'ff-c40'
+        self.datalabel_celebdf = 'celebdf'
+        self.datalabel_wild = 'wilddeepfake'
         self.imgs_per_video = None  # Not needed anymore
         self.frame_interval = None  # No need for frame skipping
         self.max_frames = None  # No need to limit frames

@@ -58,7 +58,10 @@ def main_worker(local_rank, world_size, rank_offset, config):
     torch.cuda.set_device(local_rank)
 
     # 🔹 **Modify Dataset Loading (Frame-Based)**
-    train_dataset = DeepfakeDataset(phase='train', datalabel=config.datalabel, resize=config.resize, normalize=config.normalize)
+    train_dataset_c23 = DeepfakeDataset(phase='train', datalabel=config.datalabel_c23, resize=config.resize, normalize=config.normalize)
+    train_dataset_c40 = DeepfakeDataset(phase='train', datalabel=config.datalabel_c40, resize=config.resize, normalize=config.normalize)
+    train_dataset_celebdf = DeepfakeDataset(phase='train', datalabel=config.datalabel_celebdf, resize=config.resize, normalize=config.normalize)
+    train_dataset_wild = DeepfakeDataset(phase='train', datalabel=config.datalabel_wild, resize=config.resize, normalize=config.normalize)
     validate_dataset = DeepfakeDataset(phase='val', datalabel=config.datalabel, resize=config.resize, normalize=config.normalize)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
